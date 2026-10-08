@@ -40,7 +40,9 @@
 
       html,
       body {
+        height: 100vh;
         height: 100dvh;
+        height: var(--tg-viewport-height, 100dvh);
         overflow: hidden;
         overscroll-behavior: none;
       }
@@ -688,17 +690,67 @@
     </div>
 
     <script>
+      // ============================================================
+      // TELEGRAM MINI APP INIT
+      // ============================================================
       const tg = window.Telegram?.WebApp;
 
       if (tg) {
-        tg.ready(); // сообщаем, что игра готова
-        tg.expand(); // разворачиваем на доступную высоту (убирает чат снизу)
+        // 1. Сообщаем Telegram, что приложение готово
+        tg.ready();
 
-        // Настоящий fullscreen (Bot API 8.0+)
-        if (tg.requestFullscreen) {
-          tg.requestFullscreen();
+        // 2. Разворачиваем на максимум высоты
+        tg.expand();
+
+        // 3. Запрашиваем настоящий fullscreen с задержкой,
+        //    чтобы клиент успел применить expand
+        if (typeof tg.requestFullscreen === "function") {
+          setTimeout(() => {
+            try {
+              const canFullscreen =
+                typeof tg.isVersionAtLeast !== "function" ||
+                tg.isVersionAtLeast("8.0");
+              if (canFullscreen) {
+                tg.requestFullscreen();
+              }
+            } catch (e) {}
+          }, 100);
+        }
+
+        // 4. Отключаем вертикальные свайпы для закрытия
+        try {
+          if (typeof tg.disableVerticalSwipes === "function") {
+            tg.disableVerticalSwipes();
+          }
+        } catch (e) {}
+
+        // 5. Подписываемся на изменение viewport
+        if (typeof tg.onEvent === "function") {
+          tg.onEvent("viewportChanged", () => {
+            if (!tg.isExpanded && typeof tg.expand === "function") {
+              tg.expand();
+            }
+            if (tg.viewportStableHeight) {
+              document.documentElement.style.setProperty(
+                "--tg-viewport-height",
+                tg.viewportStableHeight + "px",
+              );
+            }
+          });
+        }
+
+        // 6. Фиксируем высоту под Telegram viewport
+        if (tg.viewportStableHeight) {
+          document.documentElement.style.setProperty(
+            "--tg-viewport-height",
+            tg.viewportStableHeight + "px",
+          );
         }
       }
+
+      // ============================================================
+      // ИГРА
+      // ============================================================
       (function () {
         "use strict";
 
@@ -938,9 +990,8 @@
           },
         };
 
-        // ---------- ГЕОМЕТРИЯ (главное исправление) ----------
+        // ---------- ГЕОМЕТРИЯ ----------
         function getMetrics() {
-          // Берём реальные размеры .tiles (это уже область внутри padding)
           const rect = tilesLayer.getBoundingClientRect();
           const gap =
             parseFloat(
@@ -960,7 +1011,7 @@
           tile.el.style.height = cellSize + "px";
           tile.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 
-          // Подбираем размер шрифта в зависимости от размера клетки и длины числа
+          // Подбираем размер шрифта
           const str = String(tile.value);
           const base = cellSize * 0.55;
           let font;
@@ -1042,7 +1093,6 @@
 
           for (let i = 0; i < START_TILES; i++) addRandomTile(true);
 
-          // Пересчёт после рендера
           requestAnimationFrame(() => applyAllGeometry(false));
         }
 
@@ -1219,7 +1269,6 @@
               keep.value = newValue;
               keep.el.dataset.val = newValue;
               keep.el.querySelector(".tile-inner").textContent = newValue;
-              // Обновим размер шрифта
               applyTileGeometry(keep);
               keep.el.classList.add("merged");
               setTimeout(() => keep.el.classList.remove("merged"), 260);
